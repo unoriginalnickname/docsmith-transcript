@@ -211,6 +211,7 @@ def extract(t: dict, model: str | None = None,
 
     known = ontology.known_people(t, corpus)
     people, edges, rejected, irrelevant = [], [], 0, 0
+    discarded: list[dict] = []
 
     for person in answer.get("people") or []:
         name = (person or {}).get("name")
@@ -234,14 +235,25 @@ def extract(t: dict, model: str | None = None,
         evidence = (edge.get("evidence") or "").strip()
         if kind not in KINDS or not edge.get("from") or not edge.get("to"):
             continue
+        # What a filter threw away is the only way to tell a filter that is
+        # working from one that is eating good edges. On the first full corpus
+        # run `quote_supports` dropped 21% of candidates, and a bare count of
+        # them is a number nobody can check.
+        def drop(why: str) -> None:
+            discarded.append({"from": edge["from"], "to": edge["to"], "kind": kind,
+                              "evidence": evidence, "why": why,
+                              "video": t.get("title", "")})
+
         if not quote_is_real(evidence, t["text"]):
             rejected += 1
+            drop("quote does not occur in the transcript")
             continue
         if not quote_supports(evidence, edge["from"], edge["to"]):
             # Genuine quote, wrong claim. Counted separately so the two kinds of
             # failure stay legible: one is a model inventing a citation, the
             # other is a model attaching a real one to the wrong pair.
             irrelevant += 1
+            drop("quote names neither party")
             continue
         source, _ = ontology.canonicalise(ontology.tidy_name(edge["from"]), known)
         target, _ = ontology.canonicalise(ontology.tidy_name(edge["to"]), known)
@@ -268,25 +280,55 @@ def extract(t: dict, model: str | None = None,
         failed = "returned no people, though the transcript names a speaker"
 
     return {"people": people, "edges": edges, "rejected": rejected,
-            "irrelevant": irrelevant,
+            "irrelevant": irrelevant, "discarded": discarded,
             **({"failed": failed} if failed else {}),
             "video": t.get("title", ""),
             "video_id": transkrp.video_id(t.get("url", "")) or t.get("path", "")}
 
 
-def merge(results: list[dict]) -> dict:
+def alias_map(raw: dict[str, str] | None) -> dict[str, str]:
+    """A corpus's handle → canonical-name file, keyed for lookup.
+
+    Human-owned and deliberately not inferred. There is no in-corpus evidence
+    that "swix" is one person: `nameparser` ships no list of given names, and
+    the corpus metadata never spells him out. Telling a handle from a bare given
+    name takes world knowledge, and this project's answer to world knowledge
+    (ADR 0012) is a human-supplied domain model enforced deterministically —
+    a file somebody wrote, not a guess somebody generated.
+    """
+    return {ontology._fold(ontology.tidy_name(k)): v.strip()
+            for k, v in (raw or {}).items() if k and (v or "").strip()}
+
+
+def _aliased(name: str, aliases: dict[str, str]) -> str:
+    return aliases.get(ontology._fold(ontology.tidy_name(name)), name)
+
+
+def merge(results: list[dict], aliases: dict[str, str] | None = None) -> dict:
     """One graph from many transcripts, with people collapsed to one node each.
 
     A node's weight is how many distinct videos it appears in, which is the
     property that actually distinguishes a recurring figure from someone
     mentioned once — and is not the same as how often a name is said.
+
+    Aliases are applied **here, not in `extract`**. Identity is a corpus-level
+    decision, and doing it per-video would bake one run's answer into
+    `.graph-parts.jsonl` — where re-merging is free and re-extracting costs
+    forty model calls. Editing the file and re-merging should cost nothing.
     """
+    aliases = alias_map(aliases)
     people: dict[str, dict] = {}
     edges: list[dict] = []
 
     for result in results:
         seen_here = set()
         for person in result.get("people") or []:
+            name = _aliased(person["name"], aliases)
+            # An alias supplies exactly the world knowledge that made the name
+            # local, so it stops being local — provided what it maps to is a
+            # name that identifies someone outside one recording.
+            local = bool(person.get("local")) and not ontology.is_full_name(name)
+            person = {**person, "name": name, "local": local}
             key = ontology._fold(person["name"])
             if person.get("local"):
                 # Scoped to its video, so forty transcripts' worth of Maxes
@@ -315,7 +357,12 @@ def merge(results: list[dict]) -> dict:
                 # the count alone cannot answer it.
                 node["appears_in"].append({"video": result.get("video", ""),
                                            "video_id": result.get("video_id", "")})
-        edges += result.get("edges") or []
+        # Endpoints too, or an aliased person gets a node under their real name
+        # and keeps their edges under the handle. Copied rather than mutated:
+        # these come from `.graph-parts.jsonl`, which merging must not rewrite.
+        for edge in result.get("edges") or []:
+            edges.append({**edge, "from": _aliased(edge["from"], aliases),
+                          "to": _aliased(edge["to"], aliases)})
 
     failures = [{"video": r.get("video", ""), "why": r["failed"]}
                 for r in results if r.get("failed")]
@@ -324,10 +371,52 @@ def merge(results: list[dict]) -> dict:
         "edges": edges,
         "rejected": sum(r.get("rejected", 0) for r in results),
         "irrelevant": sum(r.get("irrelevant", 0) for r in results),
+        "ambiguous": _ambiguous(people),
+        # Every edge a filter threw away, with its quote. `rejected` and
+        # `irrelevant` are bare counts, and a count is a number nobody can
+        # check — on the first full corpus run these two dropped 21% of the
+        # candidate edges between them.
+        "discarded": [d for r in results for d in (r.get("discarded") or [])],
         # Surfaced rather than absorbed: a graph missing a quarter of its corpus
         # should say so, not quietly be smaller.
         "failed": failures,
     }
+
+
+def _ambiguous(people: dict[str, dict]) -> list[dict]:
+    """One-word names that turned up in more than one video, and their roles.
+
+    This is [ADR 0013](docs/adr/0013-a-degraded-graph-must-not-pass-for-a-finished-one.md)
+    applied to identity. Scoping a bare given name per video is right — forty
+    transcripts hold several unrelated Maxes — but it is a containment, not a
+    diagnosis, and it is silent. A corpus whose most-cited figure is filed as
+    five strangers looks exactly like a corpus where he appeared once, and
+    nobody can write the alias that fixes it without first being told.
+
+    Emitting it needs no configuration and asserts nothing: these *may* be one
+    person. Deciding is the reader's, which is what `aliases.json` is for.
+    """
+    groups: dict[str, list[dict]] = {}
+    for key, node in people.items():
+        if node["local"] and "@" in key:
+            groups.setdefault(key.rsplit("@", 1)[0], []).append(node)
+    out = []
+    for nodes in groups.values():
+        if len(nodes) < 2:
+            continue
+        out.append({
+            # The fullest spelling seen, so "Swix" and "swix" report as one.
+            # Capitalisation breaks the tie, because equal-length variants would
+            # otherwise make the report depend on dict order — and this is the
+            # string a person copies into aliases.json.
+            "name": max((n["name"] for n in nodes),
+                        key=lambda n: (len(n), n[:1].isupper())),
+            "videos": len(nodes),
+            "seen": [{"video": a["video"], "video_id": a["video_id"],
+                      "roles": n["roles"]}
+                     for n in nodes for a in n["appears_in"]],
+        })
+    return sorted(out, key=lambda a: (-a["videos"], a["name"]))
 
 
 def save(graph: dict, path: str) -> None:

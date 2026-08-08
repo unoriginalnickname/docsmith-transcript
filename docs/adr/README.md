@@ -30,8 +30,9 @@ once accepted — superseded by a later record instead.
 | [0014](0014-strip-sponsor-reads-on-request-and-say-so.md) | Strip sponsor reads on request, and say so in the document | Accepted |
 | [0015](0015-transcribe-podcasts-rather-than-refusing-them.md) | Transcribe podcasts ourselves, rather than refusing them | Accepted |
 | [0016](0016-obsidian-is-the-graph-viewer.md) | Obsidian is the graph viewer, and the transcripts stay untouched | Accepted (amended by 0017) |
-| [0017](0017-three-tiers-of-link-strength.md) | Three tiers of link strength, encoded where Obsidian can see them | Accepted |
+| [0017](0017-three-tiers-of-link-strength.md) | Three tiers of link strength, encoded where Obsidian can see them | Accepted (amended by 0019) |
 | [0018](0018-a-local-page-runs-the-fetch.md) | A local page runs the fetch, and the engine underneath it is framework-free | Accepted |
+| [0019](0019-a-recurring-one-word-name-is-reported-not-resolved.md) | A recurring one-word name is reported, and a human resolves it | Accepted |
 
 The survey these draw on is
 [docs/research/2026-07-youtube-transcript-extraction.md](../research/2026-07-youtube-transcript-extraction.md)
