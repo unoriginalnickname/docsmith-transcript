@@ -211,6 +211,7 @@ def extract(t: dict, model: str | None = None,
 
     known = ontology.known_people(t, corpus)
     people, edges, rejected, irrelevant = [], [], 0, 0
+    discarded: list[dict] = []
 
     for person in answer.get("people") or []:
         name = (person or {}).get("name")
@@ -234,14 +235,25 @@ def extract(t: dict, model: str | None = None,
         evidence = (edge.get("evidence") or "").strip()
         if kind not in KINDS or not edge.get("from") or not edge.get("to"):
             continue
+        # What a filter threw away is the only way to tell a filter that is
+        # working from one that is eating good edges. On the first full corpus
+        # run `quote_supports` dropped 21% of candidates, and a bare count of
+        # them is a number nobody can check.
+        def drop(why: str) -> None:
+            discarded.append({"from": edge["from"], "to": edge["to"], "kind": kind,
+                              "evidence": evidence, "why": why,
+                              "video": t.get("title", "")})
+
         if not quote_is_real(evidence, t["text"]):
             rejected += 1
+            drop("quote does not occur in the transcript")
             continue
         if not quote_supports(evidence, edge["from"], edge["to"]):
             # Genuine quote, wrong claim. Counted separately so the two kinds of
             # failure stay legible: one is a model inventing a citation, the
             # other is a model attaching a real one to the wrong pair.
             irrelevant += 1
+            drop("quote names neither party")
             continue
         source, _ = ontology.canonicalise(ontology.tidy_name(edge["from"]), known)
         target, _ = ontology.canonicalise(ontology.tidy_name(edge["to"]), known)
@@ -268,7 +280,7 @@ def extract(t: dict, model: str | None = None,
         failed = "returned no people, though the transcript names a speaker"
 
     return {"people": people, "edges": edges, "rejected": rejected,
-            "irrelevant": irrelevant,
+            "irrelevant": irrelevant, "discarded": discarded,
             **({"failed": failed} if failed else {}),
             "video": t.get("title", ""),
             "video_id": transkrp.video_id(t.get("url", "")) or t.get("path", "")}
