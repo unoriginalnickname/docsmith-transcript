@@ -59,7 +59,15 @@ Issues = "https://github.com/unoriginalnickname/transkrp/issues"
 # is inside the function that transcribes. `speakers`, `ontology` and `graph` are
 # deliberately absent — they need the [speakers] extras and are imported lazily,
 # inside the functions that use them, so an install without the extras still runs.
-py-modules = ["transkrp", "sponsors", "podcast"]
+#
+# `jobs`, `server` and `ui` are --serve, and ship for the same reason: stdlib
+# only, and the page has to work from a plain `pip install` (ADR 0018). They are
+# imported lazily, inside the --serve branch, so nothing here costs anything to
+# the CLI or to `from transkrp import transcript`. Flat modules with plain names
+# is this project's existing shape rather than an endorsement of it — installing
+# a top-level `server` is a collision waiting to happen, and the fix when it
+# comes should move all of these into one package, not just the new three.
+py-modules = ["transkrp", "sponsors", "podcast", "jobs", "server", "ui"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

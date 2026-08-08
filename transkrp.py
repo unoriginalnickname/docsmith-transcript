@@ -956,7 +956,9 @@ def main(argv: list[str] | None = None) -> int:
     # prog= because the installed console script puts its full path in argv[0],
     # so --help would otherwise open with a line of C:\...\Scripts\transkrp.
     ap = argparse.ArgumentParser(prog="transkrp", description="Fetch a YouTube transcript.")
-    ap.add_argument("url", nargs="+", help="video URLs; a playlist or channel URL expands")
+    # "*" rather than "+" because --serve takes its URLs from the page instead.
+    # A bare `transkrp` still has to say what's missing, so the check is below.
+    ap.add_argument("url", nargs="*", help="video URLs; a playlist or channel URL expands")
     ap.add_argument("-o", "--out", help="output file, or a directory for several videos; "
                                         "'-' for stdout (default: ./<title-slug>-<id>.<ext>)")
     ap.add_argument("--lang", metavar="KEY",
@@ -999,6 +1001,11 @@ def main(argv: list[str] | None = None) -> int:
                     help="browser to read cookies from (e.g. firefox, "
                          "'chrome:Profile 1') or a cookies.txt path; needed for "
                          "age-restricted and sign-in-required videos")
+    ap.add_argument("--serve", action="store_true",
+                    help="open a local page that runs the fetches instead, and "
+                         "shows them happening; -o says where files go")
+    ap.add_argument("--port", type=int, default=8765, metavar="N",
+                    help="port for --serve (default 8765; any free port if taken)")
     ap.add_argument("--version", action="version", version=f"transkrp {_version()}")
     args = ap.parse_args(argv)
 
@@ -1010,6 +1017,24 @@ def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace", newline="\n")
+
+    if args.serve:
+        # Imported here, not at module level: the server pulls in the job
+        # engine and the page, and none of that belongs in the import cost of
+        # `from transkrp import transcript`.
+        import server
+
+        out_dir = args.out if args.out and args.out != "-" else "."
+        try:
+            os.makedirs(out_dir, exist_ok=True)
+        except OSError as e:
+            print(f"error: cannot use {out_dir!r} as an output directory: {e.strerror}",
+                  file=sys.stderr)
+            return 1
+        return server.serve(out_dir, args.port, args.proxy, args.cookies)
+
+    if not args.url:
+        ap.error("give me a URL, or --serve for the local page")
 
     try:
         urls = [v for u in args.url

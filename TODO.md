@@ -59,6 +59,14 @@ is a bad way to exist.
 
 ## Done since this list was written
 
+**A local page** runs the fetches and shows them happening: `transkrp --serve`
+([ADR 0018](docs/adr/0018-a-local-page-runs-the-fetch.md)). Worth doing where a
+graph viewer wasn't, because nothing already does it — the self-hosted yt-dlp
+UIs are downloaders, and the hosted transcript sites cannot use your cookies,
+your playlists or your disk. The job engine is deliberately framework-free, so
+absorbing this into a larger research tool later is a rewrite of the HTTP
+adapter rather than of the part that took the thinking.
+
 **Podcasts** are transcribed rather than refused: a show's name, an RSS feed or
 an Apple Podcasts link resolves through the iTunes directory to the episode
 audio, and `faster-whisper` produces the transcript when the feed publishes none

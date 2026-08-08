@@ -15,7 +15,8 @@ Fetches a YouTube transcript as a readable markdown file — prose with a
 | **nameparser + rapidfuzz** | optional | Name canonicalisation. `pip install ".[speakers]"` |
 | **faster-whisper** | podcasts | Actual speech recognition, for audio nobody published a transcript for. `pip install ".[podcast]"` |
 | **iTunes Search API** | podcasts | Resolves a show's name to its RSS feed. No key, stdlib only |
-| **pytest** | dev | 458 offline tests, 21 live ones behind a marker |
+| **stdlib `http.server`** | `--serve` | The local page. No framework, no build step, nothing fetched from the web |
+| **pytest** | dev | 508 offline tests, 21 live ones behind a marker |
 
 **For YouTube, transcription is YouTube's** — this reads the caption track it
 already published, and the work is downstream of ASR: de-duplication,
@@ -55,6 +56,8 @@ Writes `<title-slug>-<video_id>.md`.
 --episode TITLE  which podcast episode (default: the most recent)
 --whisper-model  model for podcasts, which have no captions to fetch (default small)
 --force          refetch anyway, when captions have been corrected
+--serve          open a local page that runs the fetches and shows them happening
+--port N         port for --serve (default 8765)
 --version
 ```
 
@@ -82,6 +85,51 @@ t = transcript(url)          # JSON-safe dict; raises LookupError on failure
 Every failure is a `LookupError`. Three subclasses when the difference matters:
 `RateLimited` (wait, or use a proxy), `Unavailable` (skip it for good),
 `NoCaptions` (try another `lang`).
+
+## The local page
+
+```
+transkrp --serve -o ./notes/
+```
+
+Opens a page that takes the same URLs the CLI does, runs them, and shows each
+one happening — the caption track being fetched, the whisper run grinding
+through an hour of audio, what was written where. Finished items open into a
+reading view with a clickable timestamp on every paragraph.
+
+It writes the same files to the same place, so pointing it at an Obsidian vault
+and running `obsidian.py` afterwards works exactly as it does from the terminal.
+
+Fetches stay **serial**, across every run, because the rate limit is per-IP —
+starting a second run queues it behind the first rather than racing it. A rate
+limit stops the run and says how many were left, the same bargain the CLI
+strikes.
+
+What it deliberately doesn't do: `-o`, `--proxy` and `--cookies` are fixed when
+you launch it and cannot be typed into the page, and it binds to `127.0.0.1`
+behind a token that changes every launch. It is a local tool with a browser for
+a front end, not a service to expose.
+[ADR 0018](docs/adr/0018-a-local-page-runs-the-fetch.md) has the reasoning,
+including why the graph got no viewer and this did.
+
+The engine underneath (`jobs.py`) knows nothing about HTTP, and `server.py` is a
+thin adapter over it. The wire shapes are stable and explicitly discriminated so
+another application can be written against them:
+
+```
+POST /api/runs                              {urls, options} -> Run
+GET  /api/runs                              -> {runs: Run[]}
+GET  /api/runs/<id>                         -> Run
+POST /api/runs/<id>/cancel                  -> Run
+GET  /api/runs/<id>/items/<n>/document      -> the file's text
+GET  /api/runs/<id>/items/<n>/preview       -> paragraphs, each with an anchor
+GET  /api/config                            -> where files go, and the defaults
+```
+
+A `Run` carries `status` (`queued`, `expanding`, `running`, `done`, `stopped`,
+`cancelled`, `failed`), per-item state, and `notes` — which is where "that link
+named one video inside a playlist" ends up, so the page says what the CLI would
+have said on stderr.
 
 ## Output
 
