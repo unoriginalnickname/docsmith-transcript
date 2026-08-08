@@ -250,7 +250,166 @@ def test_rejections_are_totalled_across_the_corpus():
 
 def test_an_empty_corpus_is_not_a_crash():
     assert graph.merge([]) == {"people": [], "edges": [], "rejected": 0,
-                               "irrelevant": 0, "failed": []}
+                               "irrelevant": 0, "ambiguous": [], "discarded": [],
+                               "failed": []}
+
+
+# --------------------------------------------------------------------------
+# identity: saying when a one-word name is doing the work of several, and
+# letting a human settle it
+# --------------------------------------------------------------------------
+
+def cast(people, video_id, video="", edges=()):
+    """Like `result`, but each person is (name, role)."""
+    return {"people": [{"name": n, "role": r, "local": not ont.is_full_name(n)}
+                       for n, r in people],
+            "edges": list(edges), "rejected": 0,
+            "video": video or video_id, "video_id": video_id}
+
+
+def test_a_one_word_name_in_two_videos_is_reported_with_its_roles():
+    """Scoping a bare given name is containment, not diagnosis, and it is
+    silent. Nobody writes the alias for a collision they were never told about.
+    """
+    g = graph.merge([
+        cast([("swix", "author of the blog post that coined AI engineer")], "v1", "Talk A"),
+        cast([("Swix", "AI Engineer Summit organizer")], "v2", "Talk B"),
+    ])
+    assert len(g["ambiguous"]) == 1
+    report = g["ambiguous"][0]
+    assert report["name"] == "Swix"  # the fullest spelling seen
+    assert report["videos"] == 2
+    assert {s["video"] for s in report["seen"]} == {"Talk A", "Talk B"}
+    assert ["author of the blog post that coined AI engineer"] in \
+           [s["roles"] for s in report["seen"]]
+
+
+def test_a_one_word_name_in_one_video_is_not_ambiguous():
+    """"Barry" identifies someone perfectly well inside his own recording.
+    Reporting him would make the list unreadable and the real collisions
+    invisible."""
+    assert graph.merge([cast([("Barry", "in the audience")], "v1")])["ambiguous"] == []
+
+
+def test_a_full_name_across_videos_is_not_ambiguous():
+    """It merged correctly. There is nothing for a human to decide."""
+    g = graph.merge([cast([("Dex Horthy", "")], "v1"), cast([("Dex Horthy", "")], "v2")])
+    assert g["people"][0]["videos"] == 2 and g["ambiguous"] == []
+
+
+def test_the_report_ranks_the_worst_collision_first():
+    parts = [cast([("swix", "")], f"v{i}") for i in range(4)]
+    parts += [cast([("Ben", "")], f"w{i}") for i in range(2)]
+    names = [a["name"] for a in graph.merge(parts)["ambiguous"]]
+    assert names == ["swix", "Ben"]
+
+
+def test_an_alias_collapses_the_scattered_nodes_into_one():
+    """The payoff: five strangers become the corpus's most-cited figure."""
+    parts = [cast([("swix", f"role {i}")], f"v{i}") for i in range(5)]
+    g = graph.merge(parts, {"swix": "Shawn Wang"})
+
+    assert [p["name"] for p in g["people"]] == ["Shawn Wang"]
+    assert g["people"][0]["videos"] == 5
+    assert len(g["people"][0]["roles"]) == 5
+
+
+def test_an_aliased_person_stops_being_local():
+    """`local` is what keeps someone out of a note and dim on the graph. A real
+    name identifies them across the corpus, which is the whole point."""
+    g = graph.merge([cast([("swix", "")], "v1")], {"swix": "Shawn Wang"})
+    assert g["people"][0]["local"] is False
+
+
+def test_an_alias_to_another_bare_name_stays_local():
+    """An alias supplies world knowledge; it does not get to invent identity.
+    Mapping one first name to another leaves the same problem."""
+    g = graph.merge([cast([("swix", "")], "v1")], {"swix": "Shawn"})
+    assert g["people"][0]["local"] is True
+
+
+def test_an_alias_rewrites_the_edges_too():
+    """Otherwise the person gets a node under their real name and keeps their
+    connections under the handle, which is a hub with nothing attached."""
+    part = cast([("swix", "")], "v1",
+                edges=[{"from": "Barry Zhang", "to": "swix", "kind": "cites"}])
+    g = graph.merge([part], {"swix": "Shawn Wang"})
+    assert g["edges"][0]["to"] == "Shawn Wang"
+    assert g["edges"][0]["from"] == "Barry Zhang"
+
+
+def test_aliasing_is_insensitive_to_the_spelling_that_was_captured():
+    g = graph.merge([cast([("Swix", "")], "v1"), cast([("swix", "")], "v2")],
+                    {"SWIX": "Shawn Wang"})
+    assert len(g["people"]) == 1 and g["people"][0]["videos"] == 2
+
+
+def test_an_alias_takes_the_name_off_the_ambiguous_list():
+    """The report shrinks as it is answered, so what is left is what is open."""
+    parts = [cast([("swix", "")], "v1"), cast([("swix", "")], "v2"),
+             cast([("Ben", "")], "v3"), cast([("Ben", "")], "v4")]
+    g = graph.merge(parts, {"swix": "Shawn Wang"})
+    assert [a["name"] for a in g["ambiguous"]] == ["Ben"]
+
+
+def test_merging_never_rewrites_the_parts_it_was_given():
+    """`.graph-parts.jsonl` is the expensive half — forty model calls. Merging
+    is free precisely because it does not touch it, which is why aliases are
+    applied here and not in extract()."""
+    part = cast([("swix", "")], "v1",
+                edges=[{"from": "swix", "to": "Barry Zhang", "kind": "cites"}])
+    before = json.dumps(part, sort_keys=True)
+    graph.merge([part], {"swix": "Shawn Wang"})
+    assert json.dumps(part, sort_keys=True) == before
+
+
+def test_no_aliases_file_changes_nothing():
+    parts = [cast([("swix", "")], "v1"), cast([("swix", "")], "v2")]
+    assert graph.merge(parts) == graph.merge(parts, {})
+
+
+def test_an_empty_alias_target_is_ignored_rather_than_erasing_a_name():
+    g = graph.merge([cast([("swix", "")], "v1")], {"swix": "  "})
+    assert g["people"][0]["name"] == "swix"
+
+
+# --------------------------------------------------------------------------
+# what the filters threw away
+# --------------------------------------------------------------------------
+
+def test_discards_are_collected_across_the_corpus():
+    """`rejected` and `irrelevant` are bare counts, and a count is a number
+    nobody can check. Between them they dropped 21% of the candidate edges on
+    the first full run."""
+    a, b = result([], "v1"), result([], "v2")
+    a["discarded"] = [{"from": "X", "to": "Y", "kind": "cites", "evidence": "q",
+                       "why": "quote does not occur in the transcript",
+                       "video": "Talk A"}]
+    b["discarded"] = [{"from": "P", "to": "Q", "kind": "cites", "evidence": "r",
+                       "why": "quote names neither party", "video": "Talk B"}]
+    g = graph.merge([a, b])
+    assert len(g["discarded"]) == 2
+    assert {d["why"] for d in g["discarded"]} == {
+        "quote does not occur in the transcript", "quote names neither party"}
+
+
+def test_parts_written_before_discards_were_recorded_still_merge():
+    """A cached `.graph-parts.jsonl` predates this field. Re-merging must not
+    need forty model calls to become valid again."""
+    assert graph.merge([result([], "v1")])["discarded"] == []
+
+
+def test_a_discarded_edge_carries_the_quote_that_failed(answers, talk):
+    """The quote is the whole evidence. A discard log without it says only that
+    something was thrown away, not whether throwing it away was right."""
+    answers({"people": [{"name": "Anant Dole", "role": "speaker"}],
+             "edges": [edge(**{"from": "Anant Dole", "to": "Asbjorn Steinskog",
+                               "evidence": "a sentence that is not in the talk"})]})
+    out = graph.extract(talk)
+    assert out["edges"] == []
+    assert len(out["discarded"]) == 1
+    assert out["discarded"][0]["evidence"] == "a sentence that is not in the talk"
+    assert out["discarded"][0]["why"] == "quote does not occur in the transcript"
 
 
 # --------------------------------------------------------------------------

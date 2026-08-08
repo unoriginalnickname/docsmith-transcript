@@ -282,6 +282,40 @@ People resolve through `ontology.py`, so one person is one node however the
 transcripts spell them. Runs are resumable, and videos that failed are listed in
 the output rather than absorbed into it
 ([ADR 0013](docs/adr/0013-a-degraded-graph-must-not-pass-for-a-finished-one.md)).
+`discarded` carries every dropped edge with the quote that failed, so you can
+check the filter rather than trust a total.
+
+### When one person has one name
+
+A bare given name is scoped to its own recording, because forty talks contain
+several unrelated Maxes. That is a containment, and it hides the opposite
+problem: someone who writes under a one-word handle gets filed as a different
+stranger in every video. The build says when it happens:
+
+```
+2 one-word names appear in more than one video. They may each be one person;
+corpus/ai-engineer/aliases.json decides.
+  swix               5 videos
+      author of a blog post that coined the AI engineer role
+      AI Engineer Summit organizer who invited the speaker
+      creator of the AI News aggregator newsletter
+```
+
+Answer it with `aliases.json` in the corpus folder:
+
+```json
+{ "swix": "Shawn Wang" }
+```
+
+Re-running is free — aliases apply when the graph is *merged*, so the cached
+per-video extraction is untouched and no model is called. On this corpus that one
+line turned five dim disconnected nodes into the most-recurring figure in the
+graph: 5 videos, 6 edges, and a person note where there had been none
+([ADR 0019](docs/adr/0019-a-recurring-one-word-name-is-reported-not-resolved.md)).
+
+Nothing is inferred. There is no in-corpus evidence that "swix" is one person,
+and separating a handle from a first name takes world knowledge — so the file is
+yours, and a name nobody has answered stays visibly unresolved.
 
 ## Reading it in Obsidian
 

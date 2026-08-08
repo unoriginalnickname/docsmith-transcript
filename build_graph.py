@@ -46,7 +46,26 @@ with open(PARTS, "a", encoding="utf-8") as out:
         failures += bool(r.get("failed"))
         print(f"[{i:2}/{len(ts)}] {t['title'][:44]:46} {note}", flush=True)
 
-g = graph.merge(results)
+# Hand-written, and read at merge time rather than baked into the parts file:
+# editing it and re-running costs nothing, because merging is free and the
+# expensive per-video extraction is already cached.
+aliases = {}
+af = os.path.join(CORPUS, "aliases.json")
+if os.path.exists(af):
+    aliases = json.load(open(af, encoding="utf-8"))
+
+g = graph.merge(results, aliases)
 graph.save(g, os.path.join(CORPUS, "graph.json"))
 print(f"\nGRAPH: {len(g['people'])} people, {len(g['edges'])} edges, "
       f"{g['rejected']} edges rejected, {len(g['failed'])} videos failed")
+
+# Said out loud, not left in the JSON. Nobody writes an alias for a collision
+# they were never told about, and this is the number that decides whether the
+# graph's "appears in one video" is a finding or an artefact.
+if g["ambiguous"]:
+    print(f"\n{len(g['ambiguous'])} one-word names appear in more than one "
+          f"video. They may each be one person; {af} decides.")
+    for a in g["ambiguous"][:10]:
+        print(f"  {a['name']:<18} {a['videos']} videos")
+        for s in a["seen"]:
+            print(f"      {(s['roles'] or ['(no role given)'])[0][:66]}")

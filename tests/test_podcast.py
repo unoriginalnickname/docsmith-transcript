@@ -93,11 +93,18 @@ def no_whisper(monkeypatch):
 
 
 def stub_whisper(monkeypatch, cues=None):
+    """Stand in for speech recognition, and record what it was primed with."""
     cues = cues or [(0, 3000, "Hey everyone, welcome to the show."),
                     (3000, 7000, "Today we are joined by Garrett Young.")]
-    monkeypatch.setattr(podcast, "transcribe",
-                        lambda url, model=podcast.MODEL, progress=None:
-                        (cues, f"faster-whisper {model} (int8, CPU)"))
+    seen = {}
+
+    def fake(url, model=podcast.MODEL, progress=None, hint=""):
+        seen["hint"] = hint
+        seen["model"] = model
+        return cues, f"faster-whisper {model} (int8, CPU)"
+
+    monkeypatch.setattr(podcast, "transcribe", fake)
+    return seen
 
 
 # --- what counts as a podcast ------------------------------------------------
@@ -388,3 +395,62 @@ def test_finding_a_feed_needs_no_speech_recognition(feed, no_whisper):
     """Browsing must work on a core install; only transcribing is expensive."""
     show = podcast.episodes("https://feed.invalid/f.xml")
     assert len(show["episodes"]) == 3
+
+
+# --- priming the model with the names a human already spelled correctly ------
+
+def test_hotwords_come_from_the_show_and_the_episode(feed):
+    """ADR 0011 on the one path here that generates. The feed is where a person
+    spelled the show, the guest and the studio; ASR mangles exactly those words
+    and nothing else in the episode can correct them."""
+    show = podcast.episodes("https://feed.invalid/f.xml")
+    ep = next(e for e in show["episodes"] if "Garrett" in e["title"])
+    words = podcast.hotwords(show, ep)
+
+    assert "Valued Cultures" in words      # the show's own name
+    assert "Garrett Young" in words        # the guest
+    assert "Empty Vessel" in words         # from the title
+    assert "Today" not in words            # a capitalised sentence opener
+
+
+def test_hotwords_reach_the_recogniser(feed, monkeypatch):
+    seen = stub_whisper(monkeypatch)
+    podcast.transcript("https://feed.invalid/f.xml", episode="Garrett Young")
+    assert "Garrett Young" in seen["hint"]
+
+
+def test_a_published_transcript_needs_no_priming(feed, no_whisper):
+    """Nothing to bias: somebody already wrote it down."""
+    t = podcast.transcript("https://feed.invalid/f.xml",
+                           episode="somebody wrote a transcript")
+    assert t["source"] == "published"
+
+
+def test_a_possessive_is_not_a_second_hotword():
+    """Two spellings of one name split the weight meant for it."""
+    words = podcast.hotwords({"show": "Valued Cultures"},
+                             {"title": "Empty Vessel's studio",
+                              "description": "Empty Vessel is in Bend."})
+    assert words.count("Empty Vessel") == 1
+
+
+def test_a_mangled_feed_does_not_produce_mangled_hotwords():
+    """Feeds that declare UTF-8 and serve cp1252 punctuation leave U+FFFD
+    behind. A name with a replacement character in it is not a name."""
+    words = podcast.hotwords({"show": "Valued Cultures"},
+                             {"title": "Garrett�s Journey",
+                              "description": "Joined by Garrett Young."})
+    assert "�" not in words
+    assert "Garrett Young" in words
+
+
+def test_the_hotword_budget_is_not_exceeded():
+    """Whisper's prompt window is 224 tokens and the hotwords share it. Past a
+    point, more names means less weight on each."""
+    many = " ".join(f"Person Number{i}" for i in range(400))
+    words = podcast.hotwords({"show": "A Show"}, {"title": "", "description": many})
+    assert len(words) <= podcast.HOTWORD_CHARS
+
+
+def test_no_metadata_is_not_a_crash():
+    assert podcast.hotwords({}, {}) == ""

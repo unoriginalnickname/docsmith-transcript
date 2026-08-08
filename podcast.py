@@ -281,14 +281,67 @@ def _download(url: str, dest: str) -> int:
     return size
 
 
-def transcribe(audio_url: str, model: str = MODEL,
-               progress=None) -> tuple[list[tuple[int, int, str]], str]:
+# Words that start a sentence and so get capitalised without being names. Kept
+# short on purpose: the cost of letting one through is a wasted hotword, and the
+# cost of over-filtering is losing a real name.
+_NOT_A_NAME = {
+    "A", "An", "And", "As", "At", "But", "By", "For", "From", "He", "How", "I",
+    "If", "In", "It", "Its", "Of", "On", "Or", "She", "So", "That", "The",
+    "Their", "This", "To", "We", "What", "When", "Where", "Which", "While",
+    "Who", "Why", "With", "You", "Your", "Today", "Episode", "Part", "Podcast",
+}
+# Whisper's prompt window is 224 tokens and the hotwords share it. Past a point
+# more names means less weight on each, so this is a budget, not a limit.
+HOTWORD_CHARS = 480
+
+
+def hotwords(show: dict, episode: dict) -> str:
+    """Proper nouns from the feed, to bias speech recognition toward them.
+
+    ADR 0011's rule — exhaust the metadata before generating anything — applied
+    to the one path here that actually generates. The feed is where a *human*
+    spelled the show, the host, the guest and the companies; ASR mangles exactly
+    those words and nothing else in the episode can correct them. Feeding them
+    back in is free and it is the only correction available.
+
+    What it cannot do is invent a name nobody wrote down. A person mentioned in
+    conversation but absent from the feed stays at the model's mercy, which is
+    why model size still matters.
+    """
+    seen: dict[str, None] = {}
+    for value in (show.get("show") or "", episode.get("title") or "",
+                  episode.get("description") or ""):
+        # Runs of capitalised words: "Garrett Young", "Empty Vessel", "Bend".
+        for match in re.finditer(r"\b[A-Z][\w'’-]*(?:\s+[A-Z][\w'’-]*)*", value):
+            phrase = " ".join(w for w in match.group(0).split()
+                              if w not in _NOT_A_NAME)
+            # "Empty Vessel's" is the same hotword as "Empty Vessel", and two
+            # spellings of one name split the weight meant for it.
+            phrase = re.sub(r"[''’]s$", "", phrase).strip()
+            # Feeds that declare UTF-8 and serve cp1252 punctuation leave U+FFFD
+            # behind. A name with a replacement character in it is not a name.
+            if len(phrase) > 2 and "�" not in phrase:
+                seen.setdefault(phrase, None)
+    out: list[str] = []
+    for phrase in seen:
+        if len(", ".join(out + [phrase])) > HOTWORD_CHARS:
+            break
+        out.append(phrase)
+    return ", ".join(out)
+
+
+def transcribe(audio_url: str, model: str = MODEL, progress=None,
+               hint: str = "") -> tuple[list[tuple[int, int, str]], str]:
     """Speech recognition on an episode. Returns cues and the model used.
 
     The two non-default whisper settings are not tuning, they are the difference
     between a transcript and a loop: `condition_on_previous_text` defaults to
     True, which lets one hallucinated phrase feed itself and repeat for minutes,
     and `vad_filter` defaults to False, which invites exactly that during silence.
+
+    `hint` is the feed's own proper nouns, from `hotwords()`. It rides in the
+    same prompt slot the previous window's text would have used, which is free
+    here precisely *because* `condition_on_previous_text` is off.
     """
     try:
         from faster_whisper import WhisperModel
@@ -304,13 +357,16 @@ def transcribe(audio_url: str, model: str = MODEL,
             progress(f"downloading {audio_url.rsplit('/', 1)[-1]}")
         _download(audio_url, path)
         if progress:
-            progress(f"transcribing with whisper {model} (cpu, int8)")
+            progress(f"transcribing with whisper {model} (cpu, int8)"
+                     + (f", primed with {hint.count(',') + 1} names from the feed"
+                        if hint else ""))
         # int8 on CPU: this is the configuration that made the runtime bearable
         # without a GPU, and the accuracy cost against float32 was not audible in
         # the prose. See ADR 0015.
         whisper = WhisperModel(model, device="cpu", compute_type="int8")
         segments, _info = whisper.transcribe(
-            path, vad_filter=True, condition_on_previous_text=False)
+            path, vad_filter=True, condition_on_previous_text=False,
+            hotwords=hint or None)
         cues = []
         for s in segments:
             text = (s.text or "").strip()
@@ -379,7 +435,8 @@ def transcript(target: str, episode: str | None = None, model: str = MODEL,
     if not cues:
         if not ep["audio"]:
             raise NotFound(f"{ep['title']!r} has no audio to transcribe")
-        cues, model_used = transcribe(ep["audio"], model, progress)
+        cues, model_used = transcribe(ep["audio"], model, progress,
+                                      hint=hotwords(show, ep))
 
     punctuated = transkrp.is_punctuated(cues)
     paras = transkrp.paragraphs(cues, punctuated, target_words)

@@ -59,6 +59,21 @@ is a bad way to exist.
 
 ## Done since this list was written
 
+**Corpus identity**: a one-word name that turns up in more than one video is now
+reported with its per-video roles, and `aliases.json` in the corpus folder
+resolves it — applied at merge time, so answering one costs no model calls
+([ADR 0019](docs/adr/0019-a-recurring-one-word-name-is-reported-not-resolved.md)).
+This corrects a measurement in ADR 0017: the recurring tier looked empty because
+identity was broken, not because the corpus had no recurring figures. One alias
+took the corpus from 104 people to 100 and gave it a central node with 5 videos
+and 6 edges. `discarded` now carries every dropped edge with its quote, so the
+21% that `rejected` and `irrelevant` were counting can be checked.
+
+**Whisper hotwords** come from the feed metadata, which is where a human spelled
+the show, the host and the guest — ADR 0011's rule applied to the one path here
+that actually generates. What it cannot fix is a name nobody wrote down, which
+is why model size still matters.
+
 **A local page** runs the fetches and shows them happening: `transkrp --serve`
 ([ADR 0018](docs/adr/0018-a-local-page-runs-the-fetch.md)). Worth doing where a
 graph viewer wasn't, because nothing already does it — the self-hosted yt-dlp
