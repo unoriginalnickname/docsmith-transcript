@@ -31,6 +31,7 @@ once accepted — superseded by a later record instead.
 | [0015](0015-transcribe-podcasts-rather-than-refusing-them.md) | Transcribe podcasts ourselves, rather than refusing them | Accepted |
 | [0016](0016-obsidian-is-the-graph-viewer.md) | Obsidian is the graph viewer, and the transcripts stay untouched | Accepted (amended by 0017) |
 | [0017](0017-three-tiers-of-link-strength.md) | Three tiers of link strength, encoded where Obsidian can see them | Accepted |
+| [0018](0018-a-local-page-runs-the-fetch.md) | A local page runs the fetch, and the engine underneath it is framework-free | Accepted |
 
 The survey these draw on is
 [docs/research/2026-07-youtube-transcript-extraction.md](../research/2026-07-youtube-transcript-extraction.md)
