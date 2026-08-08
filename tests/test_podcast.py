@@ -454,3 +454,40 @@ def test_the_hotword_budget_is_not_exceeded():
 
 def test_no_metadata_is_not_a_crash():
     assert podcast.hotwords({}, {}) == ""
+
+
+def test_supplied_names_outrank_the_feeds_own():
+    """The feed is metadata the document already carries. A supplied name is
+    world knowledge the feed didn't have, which is the harder case — so it goes
+    first, where the prompt budget cannot squeeze it out."""
+    many = ", ".join(f"Filler Name{i}" for i in range(200))
+    words = podcast.hotwords({"show": "A Show"}, {"description": many},
+                             extra="Vince Zampella")
+    assert words.startswith("Vince Zampella")
+
+
+def test_a_primed_document_says_it_was_primed(feed, monkeypatch):
+    """Priming makes a word likelier whether or not it was said. A reader
+    weighing a proper noun has to know one was pushed."""
+    stub_whisper(monkeypatch)
+    t = podcast.transcript("https://feed.invalid/f.xml", episode="Garrett Young",
+                           extra_hotwords="Vince Zampella, Bizarre Creations")
+    assert t["primed_with"] == "Vince Zampella, Bizarre Creations"
+    assert "primed_with: Vince Zampella" in transkrp.to_markdown(t)
+
+
+def test_an_unprimed_document_claims_nothing(feed, monkeypatch):
+    """Absent, not empty: the field means somebody asserted something."""
+    stub_whisper(monkeypatch)
+    t = podcast.transcript("https://feed.invalid/f.xml", episode="Garrett Young")
+    assert "primed_with" not in t
+    assert "primed_with" not in transkrp.to_markdown(t)
+
+
+def test_a_published_transcript_is_never_marked_primed(feed, no_whisper):
+    """Nothing was biased — somebody wrote it down. Claiming otherwise would
+    put a warning on the one document that doesn't need one."""
+    t = podcast.transcript("https://feed.invalid/f.xml",
+                           episode="somebody wrote a transcript",
+                           extra_hotwords="Vince Zampella")
+    assert t["source"] == "published" and "primed_with" not in t

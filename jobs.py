@@ -374,6 +374,7 @@ class Runner:
                             strip_sponsors=opts["strip_sponsors"],
                             episode=opts["episode"],
                             whisper_model=opts["whisper_model"],
+                            hotwords=opts["hotwords"],
                             progress=progress)
         except transkrp.RateLimited as e:
             # Every remaining item fails the same way and asking makes the block
@@ -498,6 +499,7 @@ DEFAULTS = {
     "model": None,
     "episode": None,
     "whisper_model": podcast.MODEL,
+    "hotwords": "",
 }
 
 
@@ -529,6 +531,9 @@ def _clean_options(raw: dict) -> dict:
     # Only the published sizes get through.
     if opts["whisper_model"] not in WHISPER_MODELS:
         opts["whisper_model"] = DEFAULTS["whisper_model"]
+    # Supplied hotwords go ahead of the feed's own and share whisper's prompt
+    # window, so an unbounded string here would crowd out the metadata entirely.
+    opts["hotwords"] = opts["hotwords"][:podcast.HOTWORD_CHARS]
     return opts
 
 

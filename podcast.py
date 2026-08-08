@@ -295,7 +295,7 @@ _NOT_A_NAME = {
 HOTWORD_CHARS = 480
 
 
-def hotwords(show: dict, episode: dict) -> str:
+def hotwords(show: dict, episode: dict, extra: str = "") -> str:
     """Proper nouns from the feed, to bias speech recognition toward them.
 
     ADR 0011's rule — exhaust the metadata before generating anything — applied
@@ -305,10 +305,18 @@ def hotwords(show: dict, episode: dict) -> str:
     back in is free and it is the only correction available.
 
     What it cannot do is invent a name nobody wrote down. A person mentioned in
-    conversation but absent from the feed stays at the model's mercy, which is
-    why model size still matters.
+    conversation but absent from the feed stays at the model's mercy — measured
+    on the episode this was built against, the guest's own studio and a name
+    dropped in passing both stayed wrong through `large-v3`. `extra` is where a
+    person supplies what the feed didn't, and it goes **first** so it outranks
+    anything derived. The document says when it was used, because priming the
+    recogniser toward a word makes that word likelier whether or not it was
+    said, and a reader deciding what to trust needs to know it happened.
     """
     seen: dict[str, None] = {}
+    for phrase in (extra or "").split(","):
+        if len(phrase.strip()) > 2:
+            seen.setdefault(phrase.strip(), None)
     for value in (show.get("show") or "", episode.get("title") or "",
                   episode.get("description") or ""):
         # Runs of capitalised words: "Garrett Young", "Empty Vessel", "Bend".
@@ -401,7 +409,7 @@ def _published(url: str) -> list[tuple[int, int, str]]:
 
 def transcript(target: str, episode: str | None = None, model: str = MODEL,
                target_words: int = 110, whole_feed: bool = False,
-               progress=None) -> dict:
+               progress=None, extra_hotwords: str = "") -> dict:
     """A podcast episode in the same shape every other document here has.
 
     `transkrp.transcript` returns this for YouTube; anything downstream — the
@@ -422,7 +430,7 @@ def transcript(target: str, episode: str | None = None, model: str = MODEL,
     else:
         ep = pick(playable, episode)
 
-    source, model_used = "whisper", ""
+    source, model_used, primed = "whisper", "", ""
     cues: list[tuple[int, int, str]] = []
     if ep["transcript_url"]:
         # Free, exact, and somebody meant it. Only fall through to ASR if the
@@ -435,8 +443,8 @@ def transcript(target: str, episode: str | None = None, model: str = MODEL,
     if not cues:
         if not ep["audio"]:
             raise NotFound(f"{ep['title']!r} has no audio to transcribe")
-        cues, model_used = transcribe(ep["audio"], model, progress,
-                                      hint=hotwords(show, ep))
+        primed = hotwords(show, ep, extra_hotwords)
+        cues, model_used = transcribe(ep["audio"], model, progress, hint=primed)
 
     punctuated = transkrp.is_punctuated(cues)
     paras = transkrp.paragraphs(cues, punctuated, target_words)
@@ -455,6 +463,12 @@ def transcript(target: str, episode: str | None = None, model: str = MODEL,
         "audio": ep["audio"],
         "source": source,
         "model": model_used,
+        # Only the names a *person* supplied. The ones read off the feed are
+        # derived from metadata the document already carries, but these are an
+        # outside assertion that made certain words likelier, and a reader
+        # weighing a proper noun needs to know one was pushed.
+        **({"primed_with": extra_hotwords.strip()}
+           if extra_hotwords.strip() and source == "whisper" else {}),
         "lang": "en",
         "translated": False,
         "punctuated": punctuated,

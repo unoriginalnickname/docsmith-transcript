@@ -246,6 +246,7 @@ pre.raw {
         <label>caption track <input type="text" id="lang" size="8" placeholder="auto"></label>
         <label>paragraph length <input type="number" id="words" min="20" max="400" step="10" size="4"></label>
         <label>podcast episode <input type="text" id="episode" size="18" placeholder="most recent"></label>
+        <label>names to expect <input type="text" id="hotwords" size="22" placeholder="only for podcasts"></label>
         <label>whisper model <select id="whisper_model"></select></label>
         <label class="tick"><input type="checkbox" id="force"> refetch anyway</label>
       </div>
@@ -327,6 +328,7 @@ pre.raw {
       force: $("force").checked,
       lang: $("lang").value.trim() || null,
       episode: $("episode").value.trim() || null,
+      hotwords: $("hotwords").value.trim() || null,
       words: Number($("words").value) || null,
       whisper_model: $("whisper_model").value || null
     };

@@ -54,6 +54,7 @@ Writes `<title-slug>-<video_id>.md`.
 --model ID       model for --speakers (default: whatever claude uses)
 --playlist       take the whole playlist / every episode, not just the one
 --episode TITLE  which podcast episode (default: the most recent)
+--hotwords NAMES names to prime speech recognition with; recorded in the output
 --whisper-model  model for podcasts, which have no captions to fetch (default small)
 --force          refetch anyway, when captions have been corrected
 --serve          open a local page that runs the fetches and shows them happening
@@ -212,6 +213,33 @@ in a way an unpunctuated auto-caption track doesn't — but `small` handles
 conversational English well and proper nouns badly, which is exactly what a
 corpus of people is built from. Timestamps link into the MP3 with `#t=`, so any
 name can be checked against the audio in one click. [ADR 0015](docs/adr/0015-transcribe-podcasts-rather-than-refusing-them.md).
+
+### Getting the names right
+
+The feed already spells the show, the host and the guest correctly, because a
+human wrote it — so those go to the recogniser as hotwords before it starts. On
+the episode this was built against, that alone turned "the Value Cultures
+podcast" into "the Valued Cultures podcast".
+
+What it can't do is supply a name nobody wrote down. A person mentioned in
+passing survives on model size alone, and even `--whisper-model large-v3` got one
+wrong. `--hotwords` is where you supply what the feed didn't:
+
+```
+transkrp "The Valued Cultures Podcast" --whisper-model large-v3 \
+         --hotwords "Vince Zampella, Bizarre Creations"
+```
+
+The document records it, because priming makes a word likelier whether or not it
+was said:
+
+```yaml
+primed_with: Vince Zampella, Bizarre Creations  # names supplied to the
+  recogniser; these were made likelier, not confirmed
+```
+
+Same bargain as `sponsors_removed` below: the tool may change what comes out, and
+it must not do that quietly.
 
 ## Sponsor reads (`--strip-sponsors`)
 

@@ -588,7 +588,7 @@ def transcript(url: str, lang: str | None = None, proxy: str | None = None,
                target: int = TARGET_WORDS, cookies: str | None = None,
                segments_too: bool = False, strip_sponsors: bool = False,
                episode: str | None = None, whisper_model: str = podcast.MODEL,
-               progress=None) -> dict:
+               progress=None, hotwords: str = "") -> dict:
     """Fetch a transcript. The one call another system needs.
 
     Returns a JSON-safe dict:
@@ -604,7 +604,8 @@ def transcript(url: str, lang: str | None = None, proxy: str | None = None,
     """
     if podcast.is_podcast(url):
         return podcast.transcript(url, episode=episode, model=whisper_model,
-                                  target_words=target, progress=progress)
+                                  target_words=target, progress=progress,
+                                  extra_hotwords=hotwords)
     info = probe(url, proxy, cookies)
     source, key, translated = pick_track(info, lang)
     # No cookies on the caption fetch, and that is not the --proxy oversight
@@ -755,6 +756,12 @@ def to_markdown(t: dict) -> str:
                    if t["source"] == "whisper" else ""))
     if t.get("model"):
         head.append(f"model: {t['model']}")
+    # Priming makes a word likelier whether or not it was said, so a document
+    # that was primed says so. Same bargain as the removed sponsor spans below:
+    # the tool may change what comes out, and it must not do it quietly.
+    if t.get("primed_with"):
+        head.append(f"primed_with: {t['primed_with']}  # names supplied to the "
+                    f"recogniser; these were made likelier, not confirmed")
     head += [f"lang: {t['lang']}",
              f"punctuated: {str(t['punctuated']).lower()}"]
     if t["translated"]:
@@ -991,6 +998,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--episode", metavar="TITLE",
                     help="which podcast episode, matched on its title "
                          "(default: the most recent)")
+    ap.add_argument("--hotwords", default="", metavar="NAMES",
+                    help="comma-separated names to prime speech recognition "
+                         "with, for podcasts whose feed doesn't spell them; "
+                         "recorded in the output because it biases the result")
     ap.add_argument("--whisper-model", default=podcast.MODEL, metavar="SIZE",
                     help=f"whisper model for podcasts, which have no captions to "
                          f"fetch (default {podcast.MODEL})")
@@ -1115,6 +1126,7 @@ def main(argv: list[str] | None = None) -> int:
                            strip_sponsors=args.strip_sponsors,
                            episode=args.episode,
                            whisper_model=args.whisper_model,
+                           hotwords=args.hotwords,
                            # Transcribing an hour of audio takes minutes with
                            # nothing to show for it. Say what it is doing.
                            progress=lambda m: print(f"  {m}", file=sys.stderr))
