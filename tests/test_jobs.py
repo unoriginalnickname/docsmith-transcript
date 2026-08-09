@@ -255,6 +255,10 @@ def test_skip_existing_costs_no_request(h):
     snap = h.wait(h.run(["https://youtu.be/abcdefghijk"], skip_existing=True))
     assert snap["items"][0]["status"] == "skipped"
     assert "already have" in snap["items"][0]["message"]
+    # And how to get it anyway, naming the control that is actually on screen.
+    # A skip and a refusal look identical from the outside, and someone who has
+    # just ticked a new option meant the latter.
+    assert "untick 'skip what I already have'" in snap["items"][0]["message"]
     assert h.fetched == []
 
 

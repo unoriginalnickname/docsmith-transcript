@@ -353,7 +353,18 @@ class Runner:
         with self._lock:
             item.status = "skipped"
             item.path = have
-            item.message = f"already have {os.path.basename(have)}"
+            # Say how to override it. Skipping is right for a resumed playlist
+            # and wrong for someone who just ticked a new option and expected
+            # the document to be rebuilt with it — and from the outside those
+            # two look identical. ADR 0007's rule, that a failure carries its
+            # next step, applies just as well to a refusal to act.
+            #
+            # Names the checkbox that did this rather than `--force`, which
+            # would also work: one is in front of you and the other is folded
+            # away under the less usual settings, and an instruction is only
+            # useful if it points at something you can see.
+            item.message = (f"already have {os.path.basename(have)} — untick "
+                            f"'skip what I already have' to fetch it again")
         return True
 
     def _fetch_one(self, run: Run, item: Item) -> bool:
