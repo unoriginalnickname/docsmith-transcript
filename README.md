@@ -93,6 +93,10 @@ Every failure is a `LookupError`. Three subclasses when the difference matters:
 transkrp --serve -o ./notes/
 ```
 
+On Windows, **double-click `transkrp.cmd`** instead — it starts the server,
+opens your browser, and writes to `notes/` beside the script. The window it
+leaves open is the server; closing it stops the tool.
+
 Opens a page that takes the same URLs the CLI does, runs them, and shows each
 one happening — the caption track being fetched, the whisper run grinding
 through an hour of audio, what was written where. Finished items open into a

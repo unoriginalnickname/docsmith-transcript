@@ -414,6 +414,14 @@ class Runner:
             item.video_id = t["video_id"]
 
         if opts["speakers"]:
+            # Said *before* the call, not after. Attribution is a separate model
+            # call over the whole transcript and the slowest thing this does —
+            # minutes on a two-hour talk — and reporting only on completion left
+            # the row blank for exactly as long as it most needed to say
+            # something. A page whose job is showing work happening cannot go
+            # quiet during the longest step.
+            progress(f"naming the speakers across {len(t['paragraphs'])} "
+                     f"paragraphs — a minute or two per hour of talk")
             self._attribute(t, opts["model"], self._people, progress)
             transkrp._save_people(run.out_dir, self._people)
 

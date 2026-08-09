@@ -150,6 +150,24 @@ def test_progress_is_visible_while_the_fetch_is_still_running(tmp_path):
     assert snap["items"][0]["message"] == ""
 
 
+def test_the_row_is_not_silent_during_attribution(tmp_path):
+    """The slowest step in the tool must not be the one that says nothing. A
+    two-hour talk spends minutes here, and reporting only on completion left the
+    row blank for exactly as long as it most needed to speak."""
+    harness = Harness(tmp_path)
+    during = {}
+    run = None
+
+    def slow_attribute(t, model, people, progress):
+        during["message"] = harness.runner.snapshot(run.id)["items"][0]["message"]
+
+    harness.runner._attribute = slow_attribute
+    run = harness.run(["https://youtu.be/abcdefghijk"], speakers=True)
+    harness.wait(run)
+
+    assert "naming the speakers" in during["message"]
+
+
 def test_a_playlist_becomes_its_entries_in_order(h):
     h.expansions["playlist"] = [f"https://youtu.be/{c * 11}" for c in "abc"]
     snap = h.wait(h.run(["playlist"]))
