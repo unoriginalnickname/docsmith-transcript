@@ -125,6 +125,23 @@ def _parse(reply: str) -> dict:
     return got if isinstance(got, dict) else {}
 
 
+def _host_in(channel: str) -> str:
+    """A person's name inside a channel name, if there is one.
+
+    "Jesse Michels" is a person. "THIRD EYE DROPS with Michael Phillip" contains
+    one. "AI Engineer" contains none and must not be made into one. The
+    all-capitals test does the separating: shouting is how brands are written
+    and not how people are, so it distinguishes the show from the human in the
+    one string that holds both.
+    """
+    import ontology
+
+    people = [n for n in ontology.names_in(channel) if n != n.upper()]
+    # The last one, because the pattern is "SHOW with Person" far more often
+    # than the reverse.
+    return people[-1] if people else ""
+
+
 def _context(t: dict, corpus: dict[str, str] | None = None) -> str:
     """What the video says about itself, plus who the corpus already knows.
 
@@ -133,8 +150,20 @@ def _context(t: dict, corpus: dict[str, str] | None = None) -> str:
     them. Having seen the name spelled properly, the model has a far better
     chance of returning it that way rather than inventing a third variant.
     """
+    # "Channel (the host): X" used to be asserted outright, and the model
+    # believed it — a talk on "THIRD EYE DROPS with Michael Phillip" came back
+    # with every host paragraph labelled with the whole show name. A channel is
+    # a publication, not a person: some are named after their host, many are
+    # brands, and the two are indistinguishable from the string alone. So the
+    # channel is offered as a channel, and the host's name only where one can
+    # actually be read out of it.
+    channel = (t.get("channel") or "").strip()
     lines = [f"Title: {t.get('title', '')}",
-             f"Channel (the host): {t.get('channel') or 'unknown'}"]
+             f"Channel: {channel or 'unknown'}"]
+    if host := _host_in(channel):
+        lines.append(f"The host is probably {host}, going by the channel name.")
+    lines.append("Label people by their own name. A channel, show or company "
+                 "name is never a speaker.")
     if t.get("upload_date"):
         lines.append(f"Published: {t['upload_date']}")
     if desc := (t.get("description") or "").strip():

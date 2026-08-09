@@ -389,3 +389,30 @@ def test_description_reaches_the_frontmatter():
     body = tk.to_markdown(doc(
         description="Our guest today is Nick Cook, once an aviation editor."))
     assert "about: Our guest today is Nick Cook, once an aviation editor." in body
+
+
+# --- a channel is a publication, not a person -------------------------------
+
+def test_the_host_is_read_out_of_a_branded_channel_name():
+    """A talk on "THIRD EYE DROPS with Michael Phillip" came back with every
+    host paragraph labelled with the whole show name, because the prompt
+    asserted the channel *was* the host."""
+    assert speakers._host_in("THIRD EYE DROPS with Michael Phillip") == "Michael Phillip"
+
+
+def test_a_channel_named_after_its_host_still_names_him():
+    assert speakers._host_in("Jesse Michels") == "Jesse Michels"
+
+
+def test_a_show_name_with_no_person_in_it_yields_no_host():
+    assert speakers._host_in("The Valued Cultures Podcast") == ""
+    assert speakers._host_in("") == ""
+
+
+def test_the_prompt_never_asserts_the_channel_is_the_host():
+    context = speakers._context({"title": "An episode",
+                                 "channel": "THIRD EYE DROPS with Michael Phillip"})
+    assert "Channel (the host)" not in context
+    assert "probably Michael Phillip" in context
+    # And the rule, for the cases the channel name cannot settle.
+    assert "never a speaker" in context
