@@ -15,3 +15,7 @@ dist/
 
 # Fetched corpora - transcripts, not source
 /corpus/
+# Where `transkrp.cmd` and the README's examples write. Same reason: the tool's
+# output is not the tool. The root-level rule above misses it because these land
+# in a subdirectory.
+/notes/
