@@ -31,7 +31,12 @@ classifiers = [
     "Topic :: Text Processing :: Markup :: Markdown",
     "Topic :: Utilities",
 ]
-dependencies = ["yt-dlp>=2026.7.4"]
+# 2026.8.19, not the older floor, and --frame-at is why. Measured on one
+# video, same machine, same day: 2026.07.04 returned 27 formats and not one
+# HLS among them, where 2026.08.19 returned 47 including the 1080p60 HLS
+# variant. YouTube reaches HLS through player clients that a stale extractor
+# stops asking for, so this floor rots upward and will need raising again.
+dependencies = ["yt-dlp>=2026.8.19"]
 
 [project.optional-dependencies]
 # --speakers only. The core stays on its single dependency: fetching a
@@ -69,7 +74,11 @@ Issues = "https://github.com/unoriginalnickname/docsmith-transcript/issues"
 # is this project's existing shape rather than an endorsement of it — installing
 # a top-level `server` is a collision waiting to happen, and the fix when it
 # comes should move all of these into one package, not just the new three.
-py-modules = ["transkrp", "sponsors", "podcast", "jobs", "server", "ui"]
+#
+# `frames` ships on the same terms as `sponsors`: stdlib only, and imported
+# lazily inside the --frame-at branch. Its one extra requirement is ffmpeg, a
+# binary on PATH, which is not something pip can express as a dependency.
+py-modules = ["transkrp", "sponsors", "podcast", "frames", "jobs", "server", "ui"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

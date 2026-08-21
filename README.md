@@ -8,15 +8,16 @@ Fetches a YouTube transcript as a readable markdown file — prose with a
 | | | |
 |---|---|---|
 | **Python 3.10+** | required | Both dependencies floor there |
-| **yt-dlp** | required | The only runtime dependency: discovery, metadata, chapters, track list |
+| **yt-dlp** | required | The only runtime dependency: discovery, metadata, chapters, track list. `--frame-at` needs a current one, see below |
 | **stdlib `urllib`** | required | The caption fetch itself, and SponsorBlock |
 | **SponsorBlock API** | optional | Ad timings for `--strip-sponsors`; stdlib only, ships with the core |
 | **`claude` CLI** | optional | `--speakers` and the corpus graph. No API key |
+| **ffmpeg** | optional | `--frame-at`, which saves stills of what the video draws on screen. A binary on PATH, so pip can't install it |
 | **nameparser + rapidfuzz** | optional | Name canonicalisation. `pip install ".[speakers]"` |
 | **faster-whisper** | podcasts | Actual speech recognition, for audio nobody published a transcript for. `pip install ".[podcast]"` |
 | **iTunes Search API** | podcasts | Resolves a show's name to its RSS feed. No key, stdlib only |
 | **stdlib `http.server`** | `--serve` | The local page. No framework, no build step, nothing fetched from the web |
-| **pytest** | dev | 508 offline tests, 21 live ones behind a marker |
+| **pytest** | dev | 602 offline tests, 21 live ones behind a marker |
 
 **For YouTube, transcription is YouTube's** — this reads the caption track it
 already published, and the work is downstream of ASR: de-duplication,
@@ -52,6 +53,9 @@ Writes `<title-slug>-<video_id>.md`.
 --strip-sponsors drop sponsor reads (SponsorBlock timings); cut spans are recorded
 --speakers       name the speakers and attribute each paragraph (needs `claude`)
 --model ID       model for --speakers (default: whatever claude uses)
+--frame-at WHEN  save a frame at a timestamp or a phrase; repeatable (needs ffmpeg)
+--frame-window N take a span of frames around each moment, not one (default 0)
+--frame-step N   seconds between frames inside --frame-window (default 2)
 --playlist       take the whole playlist / every episode, not just the one
 --episode TITLE  which podcast episode (default: the most recent)
 --hotwords NAMES names to prime speech recognition with; recorded in the output
@@ -289,6 +293,61 @@ one — clips and voiceover make turn-taking genuinely ambiguous. A paragraph it
 won't commit to is left unattributed. Treat a `?` as a lead; the timestamp links
 to the second of video that settles it.
 
+## Frames from the video (`--frame-at`)
+
+Captions are speech. They cannot carry what a video **draws on screen**, and the
+words that matter most are the ones ASR handles worst. One real transcript
+rendered "Fervor" as `furvore`, "Fervid" as `vervid` and `furvid`, "Aegis" as
+`ais`, "affixes" as `aixes`. Fervor and Fervid are two different things and the
+captions collapsed both into the same noise. One frame of the game's own UI
+settled all four.
+
+```
+docsmith-transcript URL --frame-at 4:39
+docsmith-transcript URL --frame-at "Valor"
+docsmith-transcript URL --frame-at 4:39 --frame-at 1:10:41 --frame-window 6
+```
+
+Needs **ffmpeg on PATH**. The transcript is written either way: frames are an
+addition, never a replacement, and a missing ffmpeg costs the stills and nothing
+else. The exit code still says it happened.
+
+**Keep yt-dlp current, and check the one you are importing.** Whether YouTube
+offers HLS at all depends on the extractor version, and a stale one fails in a
+way that reads like the video's fault: 2026.07.04 returned 27 formats with no
+HLS among them for a video 2026.08.19 returned 47 for. Worse, `yt-dlp` the
+command and `yt_dlp` the library are separate installs and drift apart, so the
+CLI can list a 1080p60 HLS format that the library never sees. The error says
+which version it asked.
+
+A `--frame-at` value is read as a timestamp first (`279`, `4:39`, `1:10:41`) and
+as a phrase otherwise. The phrase is matched case-insensitively against the
+transcript's paragraphs, and each match's own start time is where the frame comes
+from. That is the workflow: grep the transcript, then go and look at that moment.
+A phrase matching many paragraphs is capped at 12 frames, and stderr says how
+many matched and how many were taken.
+
+**A phrase that matches nothing says so, in those words.** A search that could
+not succeed and a search that legitimately found nothing return the same silence
+otherwise, and for anything using this as evidence that distinction is the whole
+point.
+
+Files land beside the transcript as `<title-slug>-<video_id>-t<seconds>.png`, so
+a frame carries its own provenance the way a paragraph carries a timestamp: the
+name alone says which video and which second to go back to. With `-o -` the
+document goes to stdout and the frames go to the working directory, which stderr
+says.
+
+`--frame-window N` takes a span rather than a single still, `--frame-step`
+seconds apart, numbered `-t279-01.png`, `-t279-02.png`. Reach for it often: the
+moment a thing is *said* is usually not the moment it is *shown*.
+
+Under the hood it hands ffmpeg the video's HLS manifest and lets it seek, so
+there is no intermediate clip file. HLS rather than DASH is measured, not
+stylistic: range-requesting the DASH URL was throttled and timed out twice at
+over four minutes for a twenty second section, where the HLS variant returned the
+same twenty seconds in about a second.
+
 ## A graph of a corpus (`build_graph.py`)
 
 A transcript answers "what was said". A directory of them can answer who keeps
@@ -454,7 +513,10 @@ verified. It's chosen against only because it returns no video metadata.
 - The tracks carry no names, so the default output has none. `--speakers` infers
   them from metadata — a guess with a `?` on it, not diarization.
 - ASR mangles proper nouns. The timestamps are there so anything load-bearing can
-  be checked against the audio.
+  be checked against the audio, and `--frame-at` pulls the frame where the video
+  spells the word on screen.
+- Text the video only *draws* is not in the captions at all, at any quality. A
+  frame is the only source for it.
 - YouTube rate-limits caption pulls per IP and blocks datacenter ranges outright.
   Fine from a laptop; from a cloud box you'll need `--proxy` with a residential
   endpoint.
@@ -465,7 +527,7 @@ verified. It's chosen against only because it returns no video metadata.
 
 ```
 pip install -e ".[dev]"
-python -m pytest -q          # 458 offline tests, no network
+python -m pytest -q          # 602 offline tests, no network
 python -m pytest -m network  # 21 live tests, really hits YouTube
 ```
 

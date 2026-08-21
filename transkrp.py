@@ -994,6 +994,19 @@ def main(argv: list[str] | None = None) -> int:
                          "CLI (no API key; slow)")
     ap.add_argument("--model", default=None, metavar="ID",
                     help="model for --speakers (default: whatever claude uses)")
+    ap.add_argument("--frame-at", action="append", default=[], metavar="TIME|PHRASE",
+                    help="save a frame beside the transcript, at a timestamp "
+                         "(4:39, 1:10:41, 279) or at every paragraph containing "
+                         "a phrase; repeatable. Captions cannot carry text the "
+                         "video draws on screen. Needs ffmpeg on PATH")
+    ap.add_argument("--frame-window", type=int, default=0, metavar="SEC",
+                    help="take a span of frames from each --frame-at moment "
+                         "rather than one, because a thing is often shown a few "
+                         "seconds after it is said (default 0)")
+    # Spelled out rather than read off frames.STEP because frames is imported
+    # lazily, inside _frames. A test asserts the two defaults agree.
+    ap.add_argument("--frame-step", type=int, default=2, metavar="SEC",
+                    help="seconds between frames inside --frame-window (default 2)")
     ap.add_argument("--playlist", action="store_true",
                     help="for a URL that names a video inside a playlist, take "
                          "the whole playlist rather than just that video; for a "
@@ -1103,10 +1116,25 @@ def main(argv: list[str] | None = None) -> int:
                   file=sys.stderr)
             return 1
 
+    # Frames land beside their transcript, so they follow the same resolution:
+    # the output directory when there is one, otherwise wherever the single file
+    # is going. `-o -` has no beside at all, since a PNG cannot be piped out with
+    # the document, so they go to the working directory and stderr says where.
+    frame_dir = out_dir or (os.path.dirname(args.out) if args.out and not to_stdout
+                            else "") or "."
+    if args.frame_at and to_stdout:
+        print(f"note: frames cannot go to stdout; writing them to "
+              f"{os.path.abspath(frame_dir)}", file=sys.stderr)
+
     # Set once if the claude CLI turns out to be missing, so a 40-video run
     # says so once instead of forty times.
     speaker_state = {"off": False, "people": _load_people(out_dir),
                      "out_dir": out_dir}
+    # Same trick for a missing ffmpeg. `failed` here is counted apart from the
+    # video failures below: a frame that could not be taken must not be reported
+    # as a transcript that was not written, but it still has to reach the exit
+    # code, or a script cannot tell it asked for frames and got none.
+    frame_state = {"off": False, "dir": frame_dir, "failed": 0}
     docs, failed, skipped, done, fetched = [], 0, 0, 0, False
     for url in urls:
         if args.skip_existing and not args.force and not to_stdout:
@@ -1156,24 +1184,29 @@ def main(argv: list[str] | None = None) -> int:
             # Keep JSON as objects: several documents concatenated are not JSON,
             # so they have to be assembled into one array at the end.
             docs.append(t if fmt == "json" else render(t, fmt))
-            continue
+        else:
+            doc = render(t, fmt)
+            name = f"{slug(t['title'], t['video_id'])}.{ext}"
+            out = os.path.join(out_dir, name) if out_dir else (args.out or name)
+            try:
+                _write(out, doc)
+            except OSError as e:
+                print(f"error: cannot write {out!r}: {e.strerror}", file=sys.stderr)
+                failed += 1
+                continue
+            # Count the unit the file actually contains: a .srt has cues, not
+            # paragraphs, and reporting 99 paragraphs for a 1166-cue file is a lie.
+            n, unit = ((len(t["segments"]), "cues") if fmt in ("srt", "vtt")
+                       else (len(t["paragraphs"]), "paragraphs"))
+            print(f"{t['title']}\n  {t['lang']} ({t['source']})"
+                  f"{' [machine-translated]' if t['translated'] else ''}"
+                  f"\n  wrote {out} ({n} {unit})", file=sys.stderr)
 
-        doc = render(t, fmt)
-        name = f"{slug(t['title'], t['video_id'])}.{ext}"
-        out = os.path.join(out_dir, name) if out_dir else (args.out or name)
-        try:
-            _write(out, doc)
-        except OSError as e:
-            print(f"error: cannot write {out!r}: {e.strerror}", file=sys.stderr)
-            failed += 1
-            continue
-        # Count the unit the file actually contains: a .srt has cues, not
-        # paragraphs, and reporting 99 paragraphs for a 1166-cue file is a lie.
-        n, unit = ((len(t["segments"]), "cues") if fmt in ("srt", "vtt")
-                   else (len(t["paragraphs"]), "paragraphs"))
-        print(f"{t['title']}\n  {t['lang']} ({t['source']})"
-              f"{' [machine-translated]' if t['translated'] else ''}"
-              f"\n  wrote {out} ({n} {unit})", file=sys.stderr)
+        # Last, and after the document is safely on disk: frames are an addition
+        # to a transcript and never a replacement, so nothing they do can cost
+        # you one.
+        if args.frame_at:
+            _frames(t, url, args, frame_state)
 
     if args.speakers:
         _save_people(out_dir, speaker_state["people"])
@@ -1186,7 +1219,7 @@ def main(argv: list[str] | None = None) -> int:
         if failed:
             parts.append(f"{failed} failed")
         print(f"{', '.join(parts)} of {len(urls)}", file=sys.stderr)
-    return 1 if failed else 0
+    return 1 if failed or frame_state["failed"] else 0
 
 
 # Where a directory of transcripts remembers who it has already met. A dotfile
@@ -1266,6 +1299,72 @@ def _attribute(t: dict, args, state: dict) -> None:
           f" ({result['attributed']} of {len(t['paragraphs'])} paragraphs"
           f"{f', {unattributed} unattributed' if unattributed else ''})",
           file=sys.stderr)
+
+
+def _frames(t: dict, url: str, args, state: dict) -> None:
+    """Save frames from the video, for on-screen text the captions never had.
+
+    Every failure here is reported and survived. The transcript is already
+    written by the time this runs, and losing a document because a still could
+    not be pulled would be a bad trade.
+
+    A phrase that named no moment counts as a failure even though nothing went
+    wrong mechanically. The caller asked for a frame and there is none, and a
+    search that could not succeed has to be distinguishable from one that ran
+    and found nothing.
+    """
+    import frames
+
+    if state["off"]:
+        return
+    if podcast.is_podcast(url) or t.get("source") == "whisper":
+        # No video, so nothing to take a frame from. Said once rather than once
+        # per episode of a fourteen-hour show.
+        print("  frames: --frame-at needs a video, and a podcast has none",
+              file=sys.stderr)
+        state["off"] = True
+        return
+
+    asks = frames.resolve(args.frame_at, t["paragraphs"])
+    for ask in asks:
+        if ask.note:
+            print(f"  frames: {ask.note}", file=sys.stderr)
+    state["failed"] += sum(1 for ask in asks if ask.matches == 0)
+
+    # One capture per second asked for, however many values named it: two
+    # phrases that hit the same paragraph want one frame, not the same file
+    # written twice.
+    wanted = sorted({second for ask in asks for second in ask.seconds})
+    if not wanted:
+        return
+
+    try:
+        stream = frames.stream_for(url, args.proxy, args.cookies)
+    except LookupError as e:
+        print(f"  frames: {e}", file=sys.stderr)
+        state["failed"] += 1
+        return
+
+    base = slug(t["title"], t["video_id"])
+    for second in wanted:
+        try:
+            made = frames.capture(stream, second, state["dir"], base,
+                                  window=args.frame_window,
+                                  step=args.frame_step, proxy=args.proxy)
+        except frames.NotAvailable as e:
+            # A missing ffmpeg fails identically for every frame of every video,
+            # the way a missing claude CLI does. Say it once and stop asking.
+            print(f"  frames: {e}", file=sys.stderr)
+            state["off"] = True
+            state["failed"] += 1
+            return
+        except LookupError as e:
+            print(f"  frames: {e}", file=sys.stderr)
+            state["failed"] += 1
+            continue
+        print(f"  frames: wrote {os.path.basename(made[0])}"
+              f"{f' and {len(made) - 1} more' if len(made) > 1 else ''}",
+              file=sys.stderr)
 
 
 def _stdout_doc(docs: list, as_json: bool) -> str:
