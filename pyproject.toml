@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "transkrp"
+name = "docsmith-transcript"
 version = "0.1.0"
 description = "Fetch a YouTube transcript as readable markdown, with a timestamp on every paragraph"
 readme = "README.md"
@@ -45,7 +45,9 @@ podcast = ["faster-whisper>=1.1"]
 dev = ["pytest>=8", "nameparser>=1.1", "rapidfuzz>=3"]
 
 [project.scripts]
-transkrp = "transkrp:cli"
+# The command is the suite name; the module stays `transkrp` because it is
+# imported (`from transkrp import transcript`) and a hyphen cannot be a module.
+docsmith-transcript = "transkrp:cli"
 
 [project.urls]
 Homepage = "https://github.com/unoriginalnickname/transkrp"

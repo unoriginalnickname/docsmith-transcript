@@ -1,4 +1,4 @@
-# transkrp
+# docsmith-transcript
 
 Fetches a YouTube transcript as a readable markdown file — prose with a
 `[timestamp]` anchor on every paragraph, so any line traces back to the video.
@@ -33,7 +33,7 @@ lazily, so an install without the extras still fetches transcripts.
 
 ```
 pip install .
-transkrp "https://www.youtube.com/watch?v=VIDEO_ID"
+docsmith-transcript "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
 Writes `<title-slug>-<video_id>.md`.
@@ -65,7 +65,7 @@ Writes `<title-slug>-<video_id>.md`.
 Several videos at once, and playlists and channels expand:
 
 ```
-transkrp "https://www.youtube.com/playlist?list=..." -o ./notes/ --skip-existing
+docsmith-transcript "https://www.youtube.com/playlist?list=..." -o ./notes/ --skip-existing
 ```
 
 A video shared from inside a playlist (`watch?v=X&list=Y`) is treated as that one
@@ -90,10 +90,10 @@ Every failure is a `LookupError`. Three subclasses when the difference matters:
 ## The local page
 
 ```
-transkrp --serve -o ./notes/
+docsmith-transcript --serve -o ./notes/
 ```
 
-On Windows, **double-click `transkrp.cmd`** instead — it starts the server,
+On Windows, **double-click `docsmith-transcript.cmd`** instead — it starts the server,
 opens your browser, and writes to `notes/` beside the script. The window it
 leaves open is the server; closing it stops the tool.
 
@@ -178,10 +178,10 @@ translation of a machine transcription), and `turns`.
 Same command. A show's name, an RSS feed, or an Apple Podcasts link all work:
 
 ```
-transkrp "The Valued Cultures Podcast"                    # the latest episode
-transkrp "The Valued Cultures Podcast" --list             # what's in the feed
-transkrp "The Valued Cultures Podcast" --episode "Garrett Young"
-transkrp "https://feed.podbean.com/valuedcultures/feed.xml" --playlist -o ./notes/
+docsmith-transcript "The Valued Cultures Podcast"                    # the latest episode
+docsmith-transcript "The Valued Cultures Podcast" --list             # what's in the feed
+docsmith-transcript "The Valued Cultures Podcast" --episode "Garrett Young"
+docsmith-transcript "https://feed.podbean.com/valuedcultures/feed.xml" --playlist -o ./notes/
 ```
 
 Needs `pip install ".[podcast]"` — this is the one path that decodes audio, since
@@ -230,7 +230,7 @@ passing survives on model size alone, and even `--whisper-model large-v3` got on
 wrong. `--hotwords` is where you supply what the feed didn't:
 
 ```
-transkrp "The Valued Cultures Podcast" --whisper-model large-v3 \
+docsmith-transcript "The Valued Cultures Podcast" --whisper-model large-v3 \
          --hotwords "Vince Zampella, Bizarre Creations"
 ```
 

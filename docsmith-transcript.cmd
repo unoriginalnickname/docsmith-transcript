@@ -1,10 +1,10 @@
 @echo off
-rem Double-click this to start transkrp and open it in your browser.
+rem Double-click this to start docsmith-transcript and open it in your browser.
 rem
 rem `cd /d "%~dp0"` first, because double-clicking can start you anywhere and
 rem every path below is relative to this file rather than to wherever Explorer
 rem happened to be. `%~dp0` is this script's own folder, with a trailing slash.
-title transkrp
+title docsmith-transcript
 
 cd /d "%~dp0"
 
@@ -20,9 +20,9 @@ if %errorlevel%==0 (
 
 echo.
 if %errorlevel% neq 0 (
-  echo transkrp could not start. The error is above.
+  echo docsmith-transcript could not start. The error is above.
   echo If it says Python was not found, install Python 3.10 or newer.
 ) else (
-  echo transkrp has stopped. Double-click this file again to restart it.
+  echo docsmith-transcript has stopped. Double-click this file again to restart it.
 )
 pause

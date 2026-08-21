@@ -962,7 +962,8 @@ def _write(path: str, doc: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     # prog= because the installed console script puts its full path in argv[0],
     # so --help would otherwise open with a line of C:\...\Scripts\transkrp.
-    ap = argparse.ArgumentParser(prog="transkrp", description="Fetch a YouTube transcript.")
+    ap = argparse.ArgumentParser(prog="docsmith-transcript",
+                                 description="Fetch a YouTube transcript.")
     # "*" rather than "+" because --serve takes its URLs from the page instead.
     # A bare `transkrp` still has to say what's missing, so the check is below.
     ap.add_argument("url", nargs="*", help="video URLs; a playlist or channel URL expands")
