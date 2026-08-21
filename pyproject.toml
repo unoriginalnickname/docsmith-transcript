@@ -50,9 +50,9 @@ dev = ["pytest>=8", "nameparser>=1.1", "rapidfuzz>=3"]
 docsmith-transcript = "transkrp:cli"
 
 [project.urls]
-Homepage = "https://github.com/unoriginalnickname/transkrp"
-Source = "https://github.com/unoriginalnickname/transkrp"
-Issues = "https://github.com/unoriginalnickname/transkrp/issues"
+Homepage = "https://github.com/unoriginalnickname/docsmith-transcript"
+Source = "https://github.com/unoriginalnickname/docsmith-transcript"
+Issues = "https://github.com/unoriginalnickname/docsmith-transcript/issues"
 
 [tool.setuptools]
 # `sponsors` and `podcast` ship with the core: both are stdlib only, and transkrp
