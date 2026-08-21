@@ -961,7 +961,9 @@ def _write(path: str, doc: str) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     # prog= because the installed console script puts its full path in argv[0],
-    # so --help would otherwise open with a line of C:\...\Scripts\transkrp.
+    # so --help would otherwise open with a line of C:\...\Scripts\docsmith-transcript.
+    # The command carries the suite name; this module keeps its own, because it is
+    # imported in sixteen places and a hyphen cannot be a module name.
     ap = argparse.ArgumentParser(prog="docsmith-transcript",
                                  description="Fetch a YouTube transcript.")
     # "*" rather than "+" because --serve takes its URLs from the page instead.
