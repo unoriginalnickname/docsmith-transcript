@@ -11,7 +11,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-authors = [{ name = "unoriginalnickname", email = "aadammatthews@gmail.com" }]
+authors = [{ name = "unoriginalnickname" }]
 keywords = [
     "youtube", "transcript", "transcripts", "subtitles", "captions",
     "markdown", "yt-dlp", "speech-to-text", "cli",
