@@ -80,6 +80,19 @@ def test_frontmatter_and_paragraphs_round_trip(talk):
     assert talk["paragraphs"][0]["timestamp"] == "00:14"
 
 
+def test_a_quoted_value_comes_back_without_its_quotes(tmp_path):
+    """`to_markdown` quotes a title that contains a colon, because bare it is a
+    YAML syntax error. The quotes are syntax and not part of the name, so a
+    reader that does not strip them reports a title nobody gave the video."""
+    path = tmp_path / "quoted.md"
+    quoted = "\n".join("title: 'Chess: The Endgame, by Anant''s team'"
+                       if line.startswith("title:") else line
+                       for line in TALK.splitlines())
+    path.write_text(quoted, encoding="utf-8")
+    assert (graph.parse_markdown(str(path))["title"]
+            == "Chess: The Endgame, by Anant's team")
+
+
 def test_the_speaker_label_is_not_read_as_transcript_text(talk):
     """"**Anant Dole**: " is presentation. Leaving it in would let a name be
     "quoted" as evidence for a claim about the person saying it."""

@@ -792,6 +792,40 @@ def test_missing_provenance_is_omitted_not_blank():
     assert "channel:" not in body and "published:" not in body
 
 
+def test_a_value_that_would_break_yaml_is_quoted():
+    """A video titled "Chess: The Endgame" is a YAML syntax error written bare,
+    and it costs the whole block rather than the one field: anything running a
+    real parser over the frontmatter gets no metadata at all."""
+    body = tk.to_markdown(doc(title="Chess: The Endgame", channel="- Engineer"))
+    assert "title: 'Chess: The Endgame'" in body
+    assert "channel: '- Engineer'" in body
+
+
+def test_an_apostrophe_is_escaped_rather_than_dropped():
+    body = tk.to_markdown(doc(title="Anant's talk: part 2"))
+    assert "title: 'Anant''s talk: part 2'" in body
+
+
+def test_a_value_that_is_already_safe_stays_bare():
+    """People read these files. Quoting the ninety-nine values that never
+    needed it, to protect the one that did, is a bad trade."""
+    body = tk.to_markdown(doc(title="Building a Chess Coach", channel="AI Engineer"))
+    assert "title: Building a Chess Coach" in body
+    assert "channel: AI Engineer" in body
+
+
+def test_the_whole_block_survives_a_real_yaml_parser():
+    """The fields most likely to be hostile are the ones nobody controls: the
+    title and the description are whatever the uploader typed."""
+    yaml = pytest.importorskip("yaml")
+    about = ("Join this channel to get access to perks: and to a second clause "
+             "long enough that this reads as prose rather than as a label.")
+    body = tk.to_markdown(doc(title="12:30", description=about))
+    meta = yaml.safe_load(body.split("---")[1])
+    assert meta["title"] == "12:30"   # bare, YAML 1.1 reads this as 750 seconds
+    assert meta["about"] == about
+
+
 def test_transcript_carries_provenance_and_chapters(monkeypatch):
     monkeypatch.setattr(tk, "probe", lambda url, proxy=None, cookies=None: {
         "title": "T", "id": "vid12345678", "language": "en", "duration": 600,

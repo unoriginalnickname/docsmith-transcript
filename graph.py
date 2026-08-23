@@ -126,6 +126,31 @@ def quote_is_real(evidence: str, transcript_text: str) -> bool:
                for i in range(len(hay) - len(needle) + 1))
 
 
+def _value(raw: str) -> str:
+    """One frontmatter value, with the quoting `to_markdown` may have applied.
+
+    A title with a colon in it is written quoted, because bare it is a YAML
+    syntax error. Reading it back means taking the quotes off, and anything
+    after the closing quote is a trailing comment rather than part of the
+    value.
+    """
+    v = raw.strip()
+    if v[:1] == "'":
+        i = 1
+        while i < len(v):
+            if v[i] == "'":
+                if v[i + 1:i + 2] == "'":   # '' is one escaped quote
+                    i += 2
+                    continue
+                return v[1:i].replace("''", "'")
+            i += 1
+        return v[1:]                        # unterminated: hand back what is there
+    if v[:1] == '"':
+        end = v.find('"', 1)
+        return v[1:end] if end > 0 else v[1:]
+    return v.split("  #")[0].strip()
+
+
 def parse_markdown(path: str) -> dict:
     """Read one of our own transcripts back into a dict.
 
@@ -138,7 +163,7 @@ def parse_markdown(path: str) -> dict:
     for line in head.lstrip("-\n").splitlines():
         key, sep, value = line.partition(":")
         if sep and key.strip() and not key.startswith(" "):
-            meta.setdefault(key.strip(), value.split("  #")[0].strip())
+            meta.setdefault(key.strip(), _value(value))
 
     paragraphs = []
     for stamp, url, text in re.findall(
