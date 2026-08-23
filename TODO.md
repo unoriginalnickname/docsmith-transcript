@@ -74,7 +74,7 @@ the show, the host and the guest — ADR 0011's rule applied to the one path her
 that actually generates. What it cannot fix is a name nobody wrote down, which
 is why model size still matters.
 
-**A local page** runs the fetches and shows them happening: `transkrp --serve`
+**A local page** runs the fetches and shows them happening: `docsmith-transcript --serve`
 ([ADR 0018](docs/adr/0018-a-local-page-runs-the-fetch.md)). Worth doing where a
 graph viewer wasn't, because nothing already does it — the self-hosted yt-dlp
 UIs are downloaders, and the hosted transcript sites cannot use your cookies,

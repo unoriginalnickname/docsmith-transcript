@@ -40,5 +40,9 @@ jobs:
 
       # Catches what the tests can't: a packaging mistake that leaves the
       # installed command broken while every import-based test still passes.
+      # ⚠️ The name here is the one in [project.scripts], not the module name.
+      # It said `transkrp` from the rename in 2b1b4f5 until 2026-08-23, so the one
+      # step whose job is to catch a broken command was running a command that does
+      # not exist.
       - name: Installed command works
-        run: transkrp --help
+        run: docsmith-transcript --help
