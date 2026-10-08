@@ -438,6 +438,76 @@ def test_track_list_is_truncated():
     assert "+2 more" in tk._names({k: [] for k in "abcdefghij"})
 
 
+def test_auto_prefers_the_orig_track_over_the_on_request_translation():
+    """Caught live: with only auto captions, "en" drew a 429 and "en-orig" didn't.
+
+    The bare key is a translation YouTube makes on request (en -> en included);
+    <lang>-orig is the original recognition.
+    """
+    assert tk.pick_track(info_with(auto=["en", "en-orig"])) == ("auto", "en-orig", False)
+    assert tk.pick_track(info_with(auto=["en", "ja", "ja-orig"], language="ja")) \
+        == ("auto", "ja-orig", False)
+
+
+def test_manual_tracks_still_prefer_the_bare_key():
+    assert tk.pick_track(info_with(manual=["en", "en-orig"]))[1] == "en"
+
+
+def auto_tracks(*keys):
+    return {"language": "en", "subtitles": {},
+            "automatic_captions": {k: [{"ext": "json3", "url": f"http://{k}"}]
+                                   for k in keys}}
+
+
+def refuse(*bad_urls, code=429):
+    """A fake _get: HTTP `code` for bad_urls (as _get raises it), json3 otherwise."""
+    def get(url, tries=4, proxy=None):
+        if url in bad_urls:
+            cause = urllib.error.HTTPError(url, code, "boom", {}, None)
+            exc = tk.RateLimited if code == 429 else LookupError
+            raise exc(f"caption fetch failed (HTTP {code})") from cause
+        return payload(ev(0, 1000, "hello"))
+    return get
+
+
+def test_a_refused_translation_is_retried_on_the_orig_track(monkeypatch):
+    monkeypatch.setattr(tk, "_get", refuse("http://en"))
+    segs, key, tr = tk.fetch_track(auto_tracks("en", "en-orig"), "auto", "en", False)
+    assert (key, tr) == ("en-orig", False)
+    assert [s[2] for s in segs] == ["hello"]
+
+
+def test_any_http_error_falls_back_not_just_429(monkeypatch):
+    monkeypatch.setattr(tk, "_get", refuse("http://en", code=404))
+    assert tk.fetch_track(auto_tracks("en", "en-orig"), "auto", "en", False)[1] == "en-orig"
+
+
+def test_no_orig_track_names_the_failed_track_and_suggests_one(monkeypatch):
+    monkeypatch.setattr(tk, "_get", refuse("http://en"))
+    with pytest.raises(tk.RateLimited, match=r"'en' failed.*--lang en-orig"):
+        tk.fetch_track(auto_tracks("en"), "auto", "en", False)
+
+
+def test_a_forced_track_is_not_swapped_but_the_error_points_at_orig(monkeypatch):
+    monkeypatch.setattr(tk, "_get", refuse("http://en"))
+    with pytest.raises(tk.RateLimited, match=r"'en'.*--lang en-orig \(the original"):
+        tk.fetch_track(auto_tracks("en", "en-orig"), "auto", "en", False, forced=True)
+
+
+def test_a_failing_orig_track_is_not_retried_or_reworded(monkeypatch):
+    monkeypatch.setattr(tk, "_get", refuse("http://en-orig"))
+    with pytest.raises(tk.RateLimited) as e:
+        tk.fetch_track(auto_tracks("en", "en-orig"), "auto", "en-orig", False)
+    assert "--lang" not in str(e.value)
+
+
+def test_a_non_http_failure_is_not_retried(monkeypatch):
+    """An empty body is a PO-token problem, not a refused translation."""
+    monkeypatch.setattr(tk, "_get", lambda url, tries=4, proxy=None: b"")
+    with pytest.raises(LookupError, match="PO token"):
+        tk.fetch_track(auto_tracks("en", "en-orig"), "auto", "en", False)
+
+
 # --------------------------------------------------------------------------
 # retry and network handling
 # --------------------------------------------------------------------------

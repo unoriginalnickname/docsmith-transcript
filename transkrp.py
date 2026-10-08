@@ -287,8 +287,14 @@ def pick_track(info: dict, want: str | None = None) -> tuple[str, str, bool]:
         # track), en-US/en-GB, and multi-track videos expose en-<trackid>.
         matches = [k for k in tracks if k.split("-", 1)[0].lower() == prefix]
         if matches:
-            key = next((k for k in (prefix, f"{prefix}-orig", f"{prefix}-US",
-                                    f"{prefix}-GB") if k in matches), matches[0])
+            # Among auto tracks, <lang>-orig is the original speech recognition
+            # and the bare <lang> is a translation YouTube makes on request -
+            # even en -> en. That on-demand translation is what drew a 429 while
+            # en-orig was served at once, so the original goes first.
+            first = ((f"{prefix}-orig", prefix) if source == "auto"
+                     else (prefix, f"{prefix}-orig"))
+            key = next((k for k in (*first, f"{prefix}-US", f"{prefix}-GB")
+                        if k in matches), matches[0])
             return source, key, _translated(info, key) if source == "auto" else False
 
     # Say what there *is*: with nothing in English and nothing in the spoken
@@ -459,6 +465,54 @@ def _backoff(attempt: int) -> float:
     return 2 ** (attempt + 1) * (0.75 + random.random() / 2)
 
 
+def _orig_key(info: dict, key: str) -> str | None:
+    """The original-ASR auto track to suggest instead of `key`, if any.
+
+    A bare auto key such as "en" is a translation YouTube makes on request; the
+    "<lang>-orig" beside it is the untranslated recognition. Same language
+    first, then any -orig track (the language the video is spoken in).
+    """
+    if key.endswith("-orig"):
+        return None
+    auto = info.get("automatic_captions") or {}
+    same = f"{key.split('-', 1)[0]}-orig"
+    if same in auto:
+        return same
+    return next((k for k in sorted(auto) if k.endswith("-orig")), None)
+
+
+def fetch_track(info: dict, source: str, key: str, translated: bool,
+                proxy: str | None = None, forced: bool = False
+                ) -> tuple[list[tuple[int, int, str]], str, bool]:
+    """segments(), with a way out when a translated auto track is refused.
+
+    Seen live: with only automatic captions, "en" answered HTTP 429 while
+    "en-orig" came back at once. "en" is a translation YouTube generates on
+    request and "en-orig" is the stored original, so an HTTP error on the first
+    is retried once on the second - same language only, so the output language
+    never changes under the user. A track forced with --lang is not swapped;
+    the error names it and says what to pass instead. The exception type is
+    kept (RateLimited stays RateLimited) because the batch loop keys on it.
+
+    Returns (segments, key actually used, translated).
+    """
+    try:
+        return segments(info, source, key, proxy=proxy), key, translated
+    except LookupError as e:
+        if (source != "auto" or key.endswith("-orig")
+                or not isinstance(e.__cause__, urllib.error.HTTPError)):
+            raise
+        orig = _orig_key(info, key)
+        same_lang = bool(orig) and orig.split("-", 1)[0] == key.split("-", 1)[0]
+        if same_lang and not forced:
+            return (segments(info, source, orig, proxy=proxy), orig,
+                    _translated(info, orig))
+        hint = (f"try --lang {orig} (the original, untranslated track)" if orig
+                else f"try --lang {key.split('-', 1)[0]}-orig if --list shows one")
+        raise type(e)(f"auto caption track {key!r} failed: {e} - {key!r} may be "
+                      f"a translation YouTube makes on request; {hint}") from e.__cause__
+
+
 def segments(info: dict, source: str, key: str, proxy: str | None = None) -> list[tuple[int, int, str]]:
     fmts = info["subtitles" if source == "manual" else "automatic_captions"][key]
     json3 = next((f for f in fmts if f.get("ext") == "json3"), None)
@@ -611,7 +665,8 @@ def transcript(url: str, lang: str | None = None, proxy: str | None = None,
     # No cookies on the caption fetch, and that is not the --proxy oversight
     # repeated: the timedtext URL is already signed by the player response that
     # the cookied probe obtained. Authorisation is baked into the URL.
-    segs = segments(info, source, key, proxy=proxy)
+    segs, key, translated = fetch_track(info, source, key, translated, proxy=proxy,
+                                        forced=bool(lang and lang != "auto"))
     if not segs:
         raise NoCaptions(f"caption track {key!r} was empty")
     # Before segmentation, so paragraphs are built from what survives and none

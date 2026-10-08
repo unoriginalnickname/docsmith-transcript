@@ -489,6 +489,14 @@ German transcript sits one line below.
 explicitly requested translation is honoured and flagged. Keys aren't always the
 bare code — `en-orig`, `en-US`, `en-<trackid>` — so use `--list`.
 
+Among automatic tracks, `<lang>-orig` beats the bare `<lang>` when both exist.
+The `-orig` track is the original speech recognition; the bare one is a
+translation YouTube generates on request, even English to English, and it is
+the one that gets rate-limited: `en` answered HTTP 429 where `en-orig` came back
+at once. If a bare auto track fails with an HTTP error anyway, the `-orig` track
+of the same language is tried instead. A track forced with `--lang` is never
+swapped; the error names it and suggests `--lang <lang>-orig`.
+
 ## Why not just yt-dlp
 
 yt-dlp does the fetching here. But it gives you a subtitle file, not a
